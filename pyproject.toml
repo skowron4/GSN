@@ -1,0 +1,8 @@
+[project]
+name = "gsn"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "polars>=1.35.2",
+]
