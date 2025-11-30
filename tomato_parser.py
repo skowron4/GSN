@@ -1,6 +1,9 @@
 import polars as pl
 from polars import col as c
 
+def stat(name, team):
+    return pl.col(name).filter(pl.col('spawn') == team).sum().over('battle_id')
+
 half_id = (
     (
             pl.col('display_name').ne(pl.col('display_name').shift())
@@ -9,28 +12,28 @@ half_id = (
     )
     .fill_null(True)
     .cum_sum()
+    .set_sorted()
 )
 
 filters = (
-    pl.len().over('battle_id', 'spawn') == 15,
-    c.won.min().over('battle_id', 'spawn') == c.won.max().over('battle_id', 'spawn'),
-    c.won.sum().over('battle_id').is_in((0, 15)),
-    c.tier.filter(c.spawn == 1).sum().over('battle_id') == c.tier.filter(c.spawn == 2).sum().over('battle_id'),
-    c.damage.filter(c.spawn == 1).sum().over('battle_id') <= c.max_health.filter(c.spawn == 2).sum().over('battle_id'),
-    c.damage.filter(c.spawn == 2).sum().over('battle_id') <= c.max_health.filter(c.spawn == 1).sum().over('battle_id'),
-    c.spotting_assist.sum().over('battle_id', 'spawn') <= c.damage.sum().over('battle_id', 'spawn'),
-    c.tracking_assist.sum().over('battle_id', 'spawn') <= c.damage.sum().over('battle_id', 'spawn'),
-    c.penetrations.filter(c.spawn == 1).sum().over('battle_id')
-    == c.penetrations_received.filter(c.spawn == 2).sum().over('battle_id'),
-    c.penetrations.filter(c.spawn == 2).sum().over('battle_id')
-    == c.penetrations_received.filter(c.spawn == 1).sum().over('battle_id'),
+    c('won').sum().over('battle_id').is_in((15, 0)),
+    stat('won', 1).is_in((15, 0)),
+    stat('won', 2).is_in((15, 0)),
+    stat('tier', 1) == stat('tier', 2),
+    stat('damage', 1) <= stat('max_health', 2),
+    stat('damage', 2) <= stat('max_health', 1),
+    stat('spotting_assist', 1) <= stat('damage', 1),
+    stat('spotting_assist', 2) <= stat('damage', 2),
+    stat('tracking_assist', 1) <= stat('damage', 1),
+    stat('tracking_assist', 2) <= stat('damage', 2),
+    stat('penetrations', 1) == stat('penetrations_received', 2),
+    stat('penetrations', 2) == stat('penetrations_received', 1),
 )
 
 (
-    pl.scan_csv('tomato.csv')
+    pl.scan_csv('data/tomato.csv')
     .filter(pl.len().over(half_id) % 30 == 0)
-    .select(pl.arange(0, pl.len()).alias('battle_id') // 30, pl.all())
-    .set_sorted('battle_id')
+    .select((pl.arange(0, pl.len()).alias('battle_id') // 30).set_sorted(), pl.all())
     .filter(filters)
-    .sink_csv("parsed_tomato.csv")
+    .sink_csv("data/parsed_tomato.csv", engine='streaming')
 )
