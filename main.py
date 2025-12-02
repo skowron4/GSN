@@ -1,6 +1,7 @@
 import pathlib
 
-from tomato_parser import download_tomato_dataset, scan_with_validation
+from tomato_parser import download_tomato_dataset, scan_with_validation, p_row_to_battle_full, p_row_to_battle_agg_class
+
 
 def main():
     data_dir = r'./data'
