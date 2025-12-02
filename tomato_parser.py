@@ -1,8 +1,10 @@
 import polars as pl
 from polars import col as c
 
+
 def stat(name, team):
     return pl.col(name).filter(pl.col('spawn') == team).sum().over('battle_id')
+
 
 half_id = (
     (
@@ -30,10 +32,18 @@ filters = (
     stat('penetrations', 2) == stat('penetrations_received', 1),
 )
 
-(
-    pl.scan_csv('data/tomato.csv')
-    .filter(pl.len().over(half_id) % 30 == 0)
-    .select((pl.arange(0, pl.len()).alias('battle_id') // 30).set_sorted(), pl.all())
-    .filter(filters)
-    .sink_csv("data/parsed_tomato.csv", engine='streaming')
-)
+
+def download_tomato_dataset(path):
+    from kaggle.api.kaggle_api_extended import KaggleApi
+    api = KaggleApi()
+    api.authenticate()
+    api.dataset_download_file(r'goldflag/10-million-world-of-tanks-battles-from-tomato-gg', 'tomato.csv', path)
+
+
+def scan_with_validation(tomato_file: str) -> pl.LazyFrame:
+    return (
+        pl.scan_csv(tomato_file)
+        .filter(pl.len().over(half_id) % 30 == 0)
+        .select((pl.arange(0, pl.len()).alias('battle_id') // 30).set_sorted(), pl.all())
+        .filter(filters)
+    )
