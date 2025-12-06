@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import random
 import json
@@ -23,17 +25,16 @@ np.random.seed(42)
 random.seed(42)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print("DEVICE:", DEVICE)
 
 # ======================================================================
 # 1. Wczytanie danych
 # ======================================================================
-df = pl.read_csv("replays_data_II.csv")
+df = pl.read_csv("replays_data_agg_class_tier.csv")
 df = df.drop("winner")
 df = df.sample(fraction=1.0, shuffle=True, seed=42)
 
 TARGET = "duration"
-FEATURES_NUM = [c for c in df.columns if c not in ["display_name", TARGET]]
+FEATURES_NUM = [c for c in df.columns if c not in ["display_name", "battle_id", TARGET]]
 
 test_size = int(0.2 * df.height)
 df_test = df.head(test_size)
@@ -51,6 +52,21 @@ df_train = df_train.with_columns(
 df_test = df_test.with_columns(
     pl.col("display_name").replace(map2id).cast(pl.Int32).alias("map_id")
 )
+
+print("\n=== Mapowanie nazw map na ID ===")
+
+# Przygotowanie danych do tabulate (lista list)
+table_data = [[name, id_value] for name, id_value in map2id.items()]
+
+# Sortowanie tabeli po ID dla lepszej czytelności
+table_data.sort(key=lambda x: x[1])
+
+# Wypisanie tabeli
+print(tabulate(
+    table_data,
+    headers=["Nazwa Mapy", "ID"],
+    tablefmt="fancy_grid"
+))
 
 # ======================================================================
 # 3. Konwersja do NumPy
@@ -127,7 +143,6 @@ class DCNModel(nn.Module):
 
         self.deep = nn.Sequential(*layers)
 
-        # połączone wyjścia DCN + MLP
         self.final = nn.Linear(in_dim + cross_in, 1)
 
     def forward(self, map_id, x_num):
@@ -162,12 +177,14 @@ def train_model(model, X_map, X_num, y, epochs=500, batch_size=128):
     y = torch.tensor(y, dtype=torch.float32, device=DEVICE)
 
     dataset_size = len(y)
-    optimizer = optim.Adam(model.parameters(), lr=model.lr)
+    optimizer = optim.AdamW(model.parameters(), lr=model.lr)
     loss_fn = CauchyLoss(c=model.c_param)
 
     best_loss = float("inf")
     patience = 8
     patience_counter = 0
+
+    best_state = model.state_dict()
 
     for epoch in range(epochs):
         model.train()
@@ -213,6 +230,7 @@ def train_model(model, X_map, X_num, y, epochs=500, batch_size=128):
 # 7. Optuna dla jednej mapy
 # ======================================================================
 def run_optuna_for_single_map(map_id_value, n_trials=40):
+    map_name = [k for k, v in map2id.items() if v == map_id_value][0]
 
     train_mask = X_train_map == map_id_value
     test_mask  = X_test_map == map_id_value
@@ -253,22 +271,35 @@ def run_optuna_for_single_map(map_id_value, n_trials=40):
 
         model.lr = lr
         model.c_param = c_param
+        loss_fn = CauchyLoss(c_param)
 
         # trenowanie
         train_model(model, X_train_map_m, X_train_num_m, y_train_m)
 
         # walidacja
+        # model.eval()
+        # with torch.no_grad():
+        #     pred = model(
+        #         torch.tensor(X_test_map_m, dtype=torch.long, device=DEVICE),
+        #         torch.tensor(X_test_num_m, dtype=torch.float32, device=DEVICE),
+        #     ).cpu().numpy()
+        #
+        # r2 = r2_score(y_test_m, pred)
+        #
+        # # minimalizujemy -R² (czyli maksymalizujemy R²)
+        # return -r2
         model.eval()
         with torch.no_grad():
             pred = model(
                 torch.tensor(X_test_map_m, dtype=torch.long, device=DEVICE),
                 torch.tensor(X_test_num_m, dtype=torch.float32, device=DEVICE),
-            ).cpu().numpy()
+            )
+            # Używamy Cauchy Loss do optymalizacji hiperparametrów
+            y_test_tensor = torch.tensor(y_test_m, dtype=torch.float32, device=DEVICE)
+            test_loss = loss_fn(pred, y_test_tensor).item()
 
-        r2 = r2_score(y_test_m, pred)
-
-        # minimalizujemy -R² (czyli maksymalizujemy R²)
-        return -r2
+        # Minimalizujemy Cauchy Loss (spójność z funkcją treningową)
+        return test_loss
 
     # -------------------------------------------------------------------
     # Optuna
@@ -298,6 +329,9 @@ def run_optuna_for_single_map(map_id_value, n_trials=40):
 
     train_model(model, X_train_map_m, X_train_num_m, y_train_m, epochs=500)
 
+    # Zapisanie wag modelu
+    weights = model.state_dict()
+
     # wyniki końcowe
     with torch.no_grad():
         pred = model(
@@ -308,15 +342,17 @@ def run_optuna_for_single_map(map_id_value, n_trials=40):
     mae = mean_absolute_error(y_test_m, pred)
     r2 = r2_score(y_test_m, pred)
 
+    print(model.state_dict())
+
     return {
         "map_id": map_id_value,
         "map_name": [k for k, v in map2id.items() if v == map_id_value][0],
         "mae": mae,
         "r2": r2,
         "cauchy_c": best["cauchy_c"],
-        "params": best
+        "params": best,
+        "weights": weights
     }
-
 
 
 # ======================================================================
@@ -326,8 +362,34 @@ results_maps = []
 
 for map_id_value in sorted(map2id.values()):
     print(f"\n=== Optuna dla mapy: {map_id_value} ===")
-    res = run_optuna_for_single_map(map_id_value, n_trials=40)
+    res = run_optuna_for_single_map(map_id_value, n_trials=1)
+
     if res is not None:
+        # Utworzenie ścieżki do pliku
+        map_name_safe = res['map_name'].replace(' ', '_')
+        filename = f"model_{map_id_value}_{map_name_safe}.pth"
+        filepath = os.path.join("results", filename)
+
+        # Przygotowanie danych do zapisu: Wagi + Parametry
+        # Wagi muszą być słownikiem PyTorch, Parametry powinny być osobnym kluczem
+
+        # Tworzenie kompletnego obiektu do zapisu w PyTorch
+        data_to_save = {
+            'map_id': res['map_id'],
+            'map_name': res['map_name'],
+            'hyperparameters': res['params'],  # Parametry zapisane jako słownik
+            'model_state_dict': res['weights'],  # Wagi modelu (tensory)
+            'metrics': {'mae': res['mae'], 'r2': res['r2']}  # Metryki pomocniczo
+        }
+
+        # Zapis do pliku .pth
+        try:
+            torch.save(data_to_save, filepath)
+        except Exception as e:
+            print(f"Błąd podczas zapisu pliku {filepath}: {e}")
+
+        del res['weights']
+
         results_maps.append(res)
 
 # ======================================================================
