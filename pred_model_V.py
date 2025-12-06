@@ -340,7 +340,6 @@ def run_optuna_for_single_map(map_id_value, n_trials=40):
     mae = mean_absolute_error(y_test_m, pred)
     r2 = r2_score(y_test_m, pred)
 
-    print(model.state_dict())
 
     return {
         "map_id": map_id_value,
