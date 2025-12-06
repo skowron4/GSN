@@ -230,8 +230,6 @@ def train_model(model, X_map, X_num, y, epochs=500, batch_size=128):
 # 7. Optuna dla jednej mapy
 # ======================================================================
 def run_optuna_for_single_map(map_id_value, n_trials=40):
-    map_name = [k for k, v in map2id.items() if v == map_id_value][0]
-
     train_mask = X_train_map == map_id_value
     test_mask  = X_test_map == map_id_value
 
@@ -362,7 +360,7 @@ results_maps = []
 
 for map_id_value in sorted(map2id.values()):
     print(f"\n=== Optuna dla mapy: {map_id_value} ===")
-    res = run_optuna_for_single_map(map_id_value, n_trials=1)
+    res = run_optuna_for_single_map(map_id_value, n_trials=40)
 
     if res is not None:
         # Utworzenie ścieżki do pliku
