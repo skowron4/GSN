@@ -1,6 +1,9 @@
 import polars as pl
 from polars import col as c
 
+vehicle_classes = ['HT', 'MT', 'LT', 'TD', 'SPG']
+nations = ['China', 'Czech', 'France', 'Germany', 'Italy', 'Japan', 'Poland', 'Sweden', 'UK', 'USA', 'USSR']
+
 
 def stat(name, team):
     return pl.col(name).filter(pl.col('spawn') == team).sum().over('battle_id')
@@ -31,8 +34,6 @@ filters = (
     stat('penetrations', 1) == stat('penetrations_received', 2),
     stat('penetrations', 2) == stat('penetrations_received', 1),
 )
-
-vehicle_classes = ['HT', 'MT', 'LT', 'TD', 'SPG']
 
 
 def download_tomato_dataset(path):
@@ -104,7 +105,7 @@ def p_row_to_battle_agg_class(data: pl.LazyFrame | pl.DataFrame) -> pl.LazyFrame
             c('display_name').first(),
             c('tier').min().alias('tier_min'),
             c('tier').max().alias('tier_max'),
-            *(c('class').filter(c('spawn') == team, c('class') == clazz).len().alias(f't{team}_{clazz}')
+            *((c('spawn') == team & c('class') == clazz).sum().alias(f't{team}_{clazz}')
               for team in (1, 2)
               for clazz in vehicle_classes)
         )
@@ -126,7 +127,7 @@ def p_row_to_battle_agg_class_tier(data: pl.LazyFrame | pl.DataFrame) -> pl.Lazy
             .otherwise(0).alias('winner'),
             c('duration').first(),
             c('display_name').first(),
-            *(c('class').filter(c('spawn') == team, c('tier') == tier, c('class') == clazz).len()
+            *((c('spawn') == team & c('tier') == tier & c('class') == clazz).sum()
             .alias(f't{team}_{tier}_{clazz}')
               for team in (1, 2)
               for tier in range(8, 12)
