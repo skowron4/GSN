@@ -362,24 +362,18 @@ for map_id_value in sorted(map2id.values()):
     res = run_optuna_for_single_map(map_id_value, n_trials=120)
 
     if res is not None:
-        # Utworzenie ścieżki do pliku
         map_name_safe = res['map_name'].replace(' ', '_')
         filename = f"model_{map_id_value}_{map_name_safe}.pth"
         filepath = os.path.join("results", filename)
 
-        # Przygotowanie danych do zapisu: Wagi + Parametry
-        # Wagi muszą być słownikiem PyTorch, Parametry powinny być osobnym kluczem
-
-        # Tworzenie kompletnego obiektu do zapisu w PyTorch
         data_to_save = {
             'map_id': res['map_id'],
             'map_name': res['map_name'],
-            'hyperparameters': res['params'],  # Parametry zapisane jako słownik
-            'model_state_dict': res['weights'],  # Wagi modelu (tensory)
-            'metrics': {'mae': res['mae'], 'r2': res['r2']}  # Metryki pomocniczo
+            'hyperparameters': res['params'],
+            'model_state_dict': res['weights'],
+            'metrics': {'mae': res['mae'], 'r2': res['r2']}
         }
 
-        # Zapis do pliku .pth
         try:
             torch.save(data_to_save, filepath)
         except Exception as e:

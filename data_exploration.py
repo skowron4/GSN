@@ -142,7 +142,7 @@ for (name, df) in zip(queries.keys(), data):
 
         plt.tight_layout()
         plt.show()
-        continue  # skip default show below
+        continue
 
     plt.tight_layout()
     plt.show()

@@ -251,7 +251,7 @@ results_xgb = train_and_evaluate_models("XGBoost", n_trials=120)
 
 
 # ======================================================================
-# 8. Wyniki (bez zmian)
+# 8. Wyniki
 # ======================================================================
 def print_results(model_type, results):
     """Wypisuje końcowe wyniki i wybrane hiperparametry."""
